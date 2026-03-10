@@ -11,6 +11,7 @@ import sys
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List, Optional, Tuple
 
 DIR_ICON = "📂"
 FILE_ICON = "📄"
@@ -195,7 +196,7 @@ KIND_COLORS = {
 }
 
 
-@dataclass(slots=True)
+@dataclass
 class EntryInfo:
     path: Path
     name: str
@@ -206,10 +207,10 @@ class EntryInfo:
     mtime: float
     mode: int
     omitted_count: int = 0
-    error: str | None = None
+    error: Optional[str] = None
 
 
-@dataclass(slots=True)
+@dataclass
 class RenderStats:
     dirs: int = 0
     files: int = 0
@@ -229,11 +230,11 @@ class RenderStats:
         self.hidden_by_max += other.hidden_by_max
 
 
-@dataclass(slots=True)
+@dataclass
 class GitIgnoreMatcher:
     enabled: bool
-    repo_root: Path | None = None
-    cache: dict[str, bool] = field(default_factory=dict)
+    repo_root: Optional[Path] = None
+    cache: Dict[str, bool] = field(default_factory=dict)
 
     @classmethod
     def create(cls, target: Path, enabled: bool) -> GitIgnoreMatcher:
@@ -421,7 +422,7 @@ def parse_args() -> argparse.Namespace:
     return parser.parse_args()
 
 
-def resolve_target(args: argparse.Namespace) -> tuple[Path, int]:
+def resolve_target(args: argparse.Namespace) -> Tuple[Path, int]:
     if args.depth_flag is not None and args.depth is not None:
         raise SystemExit("better-ls: use either a positional depth or --depth, not both")
 
@@ -514,8 +515,8 @@ def make_ellipsis_entry(count: int) -> EntryInfo:
     )
 
 
-def normalize_ignore_patterns(raw_patterns: list[str]) -> list[str]:
-    patterns: list[str] = []
+def normalize_ignore_patterns(raw_patterns: List[str]) -> List[str]:
+    patterns: List[str] = []
     for raw_pattern in raw_patterns:
         for pattern in raw_pattern.split(","):
             cleaned = pattern.strip()
@@ -525,7 +526,7 @@ def normalize_ignore_patterns(raw_patterns: list[str]) -> list[str]:
 
 
 def matches_ignore_patterns(
-    entry: EntryInfo, base_path: Path, ignore_patterns: list[str]
+    entry: EntryInfo, base_path: Path, ignore_patterns: List[str]
 ) -> bool:
     if not ignore_patterns:
         return False
@@ -552,8 +553,8 @@ def matches_ignore_patterns(
 
 
 def sort_entries(
-    entries: list[EntryInfo], sort_by: str, reverse: bool
-) -> list[EntryInfo]:
+    entries: List[EntryInfo], sort_by: str, reverse: bool
+) -> List[EntryInfo]:
     if sort_by == "size":
         key = lambda entry: (entry.size, entry.name.lower())
         descending = not reverse
@@ -578,15 +579,15 @@ def collect_children(
     path: Path,
     args: argparse.Namespace,
     base_path: Path,
-    ignore_patterns: list[str],
+    ignore_patterns: List[str],
     gitignore_matcher: GitIgnoreMatcher,
-) -> tuple[list[EntryInfo], int]:
+) -> Tuple[List[EntryInfo], int]:
     try:
         children = list(path.iterdir())
     except PermissionError:
         return [make_error_entry(path, "[permission denied]")], 0
 
-    entries: list[EntryInfo] = []
+    entries: List[EntryInfo] = []
     for child in children:
         if not args.all and child.name.startswith("."):
             continue
@@ -709,10 +710,10 @@ def render_children(
     remaining_depth: int,
     args: argparse.Namespace,
     base_path: Path,
-    ignore_patterns: list[str],
+    ignore_patterns: List[str],
     gitignore_matcher: GitIgnoreMatcher,
     colors_enabled: bool,
-) -> tuple[list[str], RenderStats]:
+) -> Tuple[List[str], RenderStats]:
     entries, omitted_count = collect_children(
         path, args, base_path, ignore_patterns, gitignore_matcher
     )
@@ -754,10 +755,10 @@ def render_tree(
     path: Path,
     depth: int,
     args: argparse.Namespace,
-    ignore_patterns: list[str],
+    ignore_patterns: List[str],
     gitignore_matcher: GitIgnoreMatcher,
     colors_enabled: bool,
-) -> tuple[list[str], RenderStats]:
+) -> Tuple[List[str], RenderStats]:
     root_entry = build_entry(path)
     root_name = path.absolute().name if path.name in ("", ".") else path.name
     root_entry.name = root_name
@@ -782,7 +783,7 @@ def render_tree(
 
 
 def format_summary(stats: RenderStats, root_is_dir: bool) -> str:
-    parts: list[str] = []
+    parts: List[str] = []
 
     if stats.dirs:
         parts.append(f"{stats.dirs} folder{'s' if stats.dirs != 1 else ''}")

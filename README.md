@@ -12,7 +12,7 @@ A small tree-style `ls` for the terminal with icons, colors, depth control, sort
 
 ## Requirements
 
-- Python 3.10+
+- Python 3.7+
 
 ## Usage
 
