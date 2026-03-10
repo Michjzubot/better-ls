@@ -1,0 +1,842 @@
+#!/usr/bin/env python3
+
+from __future__ import annotations
+
+import argparse
+import fnmatch
+import os
+import stat
+import subprocess
+import sys
+from dataclasses import dataclass, field
+from datetime import datetime
+from pathlib import Path
+
+DIR_ICON = "📂"
+FILE_ICON = "📄"
+IMAGE_ICON = "🏞️"
+VIDEO_ICON = "🎬"
+AUDIO_ICON = "🎵"
+ARCHIVE_ICON = "📦"
+CODE_ICON = "💻"
+WEB_ICON = "🌐"
+STYLE_ICON = "🎨"
+DATA_ICON = "🧾"
+CONFIG_ICON = "⚙️"
+DOC_ICON = "📝"
+BOOK_ICON = "📘"
+SHEET_ICON = "📊"
+SLIDE_ICON = "📽️"
+LOCK_ICON = "🔒"
+DOCKER_ICON = "🐳"
+BUILD_ICON = "🛠️"
+KEY_ICON = "🔑"
+LINK_ICON = "🔗"
+EXEC_ICON = "🚀"
+TEST_ICON = "🧪"
+SCRIPT_ICON = "📜"
+ERROR_ICON = "⛔"
+
+ANSI_RESET = "\033[0m"
+ANSI_DIM = "\033[2m"
+EXTRA_GAP_ICONS = {"⚙️", "🏞️"}
+
+SPECIAL_FILE_KINDS = {
+    "dockerfile": "docker",
+    "makefile": "build",
+    "readme": "book",
+    "readme.md": "book",
+    "license": "license",
+    "license.md": "license",
+    ".env": "key",
+    ".gitignore": "config",
+    ".gitattributes": "config",
+    "package-lock.json": "lock",
+    "poetry.lock": "lock",
+    "cargo.lock": "lock",
+}
+
+EXTENSION_KIND_GROUPS = [
+    (
+        "image",
+        (
+            ".png",
+            ".jpg",
+            ".jpeg",
+            ".gif",
+            ".webp",
+            ".svg",
+            ".bmp",
+            ".tif",
+            ".tiff",
+            ".ico",
+            ".heic",
+            ".avif",
+        ),
+    ),
+    ("video", (".mp4", ".mov", ".mkv", ".avi", ".webm", ".m4v")),
+    ("audio", (".mp3", ".wav", ".flac", ".ogg", ".m4a", ".aac")),
+    (
+        "archive",
+        (
+            ".zip",
+            ".tar",
+            ".gz",
+            ".bz2",
+            ".xz",
+            ".7z",
+            ".rar",
+            ".tgz",
+            ".tar.gz",
+            ".tar.bz2",
+            ".tar.xz",
+        ),
+    ),
+    ("web", (".html", ".htm")),
+    ("style", (".css", ".scss", ".sass", ".less")),
+    ("sheet", (".csv", ".tsv", ".xls", ".xlsx", ".ods")),
+    ("slide", (".ppt", ".pptx", ".key", ".odp")),
+    ("doc", (".md", ".txt", ".rtf", ".doc", ".docx", ".odt")),
+    ("book", (".pdf",)),
+    ("data", (".json", ".jsonl", ".yaml", ".yml", ".toml", ".xml")),
+    ("lock", (".lock",)),
+    ("config", (".ini", ".cfg", ".conf", ".config", ".env")),
+    (
+        "code",
+        (
+            ".js",
+            ".mjs",
+            ".cjs",
+            ".ts",
+            ".jsx",
+            ".tsx",
+            ".java",
+            ".c",
+            ".h",
+            ".cpp",
+            ".cc",
+            ".cxx",
+            ".hpp",
+            ".cs",
+            ".rb",
+            ".go",
+            ".rs",
+            ".swift",
+            ".kt",
+            ".kts",
+            ".php",
+            ".lua",
+        ),
+    ),
+]
+
+TEST_PATTERNS = (
+    "test_*",
+    "*_test.*",
+    "*.test.*",
+    "*.spec.*",
+)
+SCRIPT_SUFFIXES = (".sh", ".bash", ".zsh", ".fish")
+
+KIND_ICONS = {
+    "dir": DIR_ICON,
+    "file": FILE_ICON,
+    "image": IMAGE_ICON,
+    "video": VIDEO_ICON,
+    "audio": AUDIO_ICON,
+    "archive": ARCHIVE_ICON,
+    "code": CODE_ICON,
+    "web": WEB_ICON,
+    "style": STYLE_ICON,
+    "data": DATA_ICON,
+    "config": CONFIG_ICON,
+    "doc": DOC_ICON,
+    "book": BOOK_ICON,
+    "sheet": SHEET_ICON,
+    "slide": SLIDE_ICON,
+    "lock": LOCK_ICON,
+    "docker": DOCKER_ICON,
+    "build": BUILD_ICON,
+    "key": KEY_ICON,
+    "link": LINK_ICON,
+    "exec": EXEC_ICON,
+    "test": TEST_ICON,
+    "script": SCRIPT_ICON,
+    "license": "⚖️",
+    "error": ERROR_ICON,
+}
+
+KIND_COLORS = {
+    "dir": "34;1",
+    "file": "37",
+    "image": "35;1",
+    "video": "31;1",
+    "audio": "33;1",
+    "archive": "33",
+    "code": "32",
+    "web": "36;1",
+    "style": "35",
+    "data": "36",
+    "config": "90",
+    "doc": "37",
+    "book": "94",
+    "sheet": "92",
+    "slide": "95",
+    "lock": "90",
+    "docker": "34",
+    "build": "33",
+    "key": "31",
+    "link": "96",
+    "exec": "32;1",
+    "test": "33;1",
+    "script": "32;1",
+    "license": "90",
+    "error": "31;1",
+}
+
+
+@dataclass(slots=True)
+class EntryInfo:
+    path: Path
+    name: str
+    kind: str
+    is_dir: bool
+    is_symlink: bool
+    size: int
+    mtime: float
+    mode: int
+    omitted_count: int = 0
+    error: str | None = None
+
+
+@dataclass(slots=True)
+class RenderStats:
+    dirs: int = 0
+    files: int = 0
+    hidden_by_max: int = 0
+
+    def add_entry(self, entry: EntryInfo) -> None:
+        if entry.omitted_count or entry.error:
+            return
+        if entry.is_dir:
+            self.dirs += 1
+        else:
+            self.files += 1
+
+    def merge(self, other: RenderStats) -> None:
+        self.dirs += other.dirs
+        self.files += other.files
+        self.hidden_by_max += other.hidden_by_max
+
+
+@dataclass(slots=True)
+class GitIgnoreMatcher:
+    enabled: bool
+    repo_root: Path | None = None
+    cache: dict[str, bool] = field(default_factory=dict)
+
+    @classmethod
+    def create(cls, target: Path, enabled: bool) -> GitIgnoreMatcher:
+        if not enabled:
+            return cls(enabled=False)
+
+        base = target if target.is_dir() else target.parent
+
+        try:
+            result = subprocess.run(
+                ["git", "-C", str(base), "rev-parse", "--show-toplevel"],
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+        except OSError:
+            return cls(enabled=False)
+
+        if result.returncode != 0:
+            return cls(enabled=False)
+
+        return cls(enabled=True, repo_root=Path(result.stdout.strip()).resolve())
+
+    def matches(self, path: Path) -> bool:
+        if not self.enabled or self.repo_root is None:
+            return False
+
+        try:
+            relative_path = path.resolve(strict=False).relative_to(
+                self.repo_root
+            ).as_posix()
+        except ValueError:
+            return False
+
+        candidates = [relative_path]
+        if path.is_dir():
+            candidates.append(f"{relative_path}/")
+
+        for candidate in candidates:
+            if candidate in self.cache:
+                if self.cache[candidate]:
+                    return True
+                continue
+
+            try:
+                result = subprocess.run(
+                    [
+                        "git",
+                        "-C",
+                        str(self.repo_root),
+                        "check-ignore",
+                        "-q",
+                        "--",
+                        candidate,
+                    ],
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                    check=False,
+                )
+            except OSError:
+                self.enabled = False
+                return False
+
+            if result.returncode not in (0, 1):
+                self.enabled = False
+                return False
+
+            ignored = result.returncode == 0
+            self.cache[candidate] = ignored
+            if ignored:
+                return True
+
+        return False
+
+
+def parse_non_negative(value: str) -> int:
+    try:
+        parsed = int(value)
+    except ValueError as exc:
+        raise argparse.ArgumentTypeError(f"invalid number: {value}") from exc
+
+    if parsed < 0:
+        raise argparse.ArgumentTypeError("value must be >= 0")
+
+    return parsed
+
+
+def parse_args() -> argparse.Namespace:
+    parser = argparse.ArgumentParser(
+        prog="better-ls",
+        description="Show files and folders as a clean tree.",
+    )
+    parser.add_argument(
+        "path_or_depth",
+        nargs="?",
+        default=".",
+        help="Path to inspect or a depth number for the current directory.",
+    )
+    parser.add_argument(
+        "depth",
+        nargs="?",
+        type=parse_non_negative,
+        help="How many directory layers to recurse into.",
+    )
+    parser.add_argument(
+        "-a",
+        "--all",
+        action="store_true",
+        help="Include hidden files and folders.",
+    )
+    parser.add_argument(
+        "-d",
+        "--depth",
+        dest="depth_flag",
+        type=parse_non_negative,
+        help="How many directory layers to recurse into.",
+    )
+    parser.add_argument(
+        "-l",
+        "--long",
+        action="store_true",
+        help="Show size and modified time for each entry.",
+    )
+    parser.add_argument(
+        "--permissions",
+        action="store_true",
+        help="Show permissions in long view.",
+    )
+    parser.add_argument(
+        "--sort",
+        choices=("name", "size", "time", "type"),
+        default="name",
+        help="Sort entries by name, size, modified time, or type.",
+    )
+    parser.add_argument(
+        "--reverse",
+        action="store_true",
+        help="Reverse the selected sort order.",
+    )
+    parser.add_argument(
+        "--only",
+        choices=("files", "dirs"),
+        help="Only show files or only show directories.",
+    )
+    parser.add_argument(
+        "--ignore",
+        action="append",
+        default=[],
+        metavar="PATTERN",
+        help="Ignore entries matching a glob pattern. Can be passed multiple times.",
+    )
+    parser.add_argument(
+        "--gitignore",
+        action="store_true",
+        help="Hide entries ignored by the repository's .gitignore rules.",
+    )
+    parser.add_argument(
+        "--compact",
+        action="store_true",
+        help="Use a compact tree without spacer lines.",
+    )
+    parser.add_argument(
+        "--max",
+        dest="max_entries",
+        type=parse_non_negative,
+        help="Show at most N entries per directory level.",
+    )
+    parser.add_argument(
+        "--icons",
+        choices=("on", "off"),
+        default="on",
+        help="Enable or disable emojis in the output.",
+    )
+    parser.add_argument(
+        "--color",
+        choices=("auto", "always", "off"),
+        default="auto",
+        help="Control ANSI colors in the output.",
+    )
+    parser.add_argument(
+        "--summary",
+        action="store_true",
+        help="Show a footer with entry counts.",
+    )
+    return parser.parse_args()
+
+
+def resolve_target(args: argparse.Namespace) -> tuple[Path, int]:
+    if args.depth_flag is not None and args.depth is not None:
+        raise SystemExit("better-ls: use either a positional depth or --depth, not both")
+
+    path_token = args.path_or_depth
+    depth = args.depth_flag if args.depth_flag is not None else args.depth
+
+    if args.depth is None:
+        try:
+            inferred_depth = parse_non_negative(path_token)
+        except argparse.ArgumentTypeError:
+            path = Path(path_token).expanduser()
+            return path, 0 if depth is None else depth
+        else:
+            if args.depth_flag is None:
+                return Path(".").expanduser(), inferred_depth
+
+    path = Path(path_token).expanduser()
+    return path, 0 if depth is None else depth
+
+
+def classify_kind(path: Path, is_dir: bool, is_symlink: bool, is_executable: bool) -> str:
+    if is_dir:
+        return "dir"
+    if is_symlink:
+        return "link"
+
+    lower_name = path.name.lower()
+    if lower_name in SPECIAL_FILE_KINDS:
+        return SPECIAL_FILE_KINDS[lower_name]
+
+    if any(fnmatch.fnmatch(lower_name, pattern) for pattern in TEST_PATTERNS):
+        return "test"
+
+    if lower_name.endswith(SCRIPT_SUFFIXES):
+        return "script"
+
+    for kind, suffixes in EXTENSION_KIND_GROUPS:
+        if lower_name.endswith(suffixes):
+            return kind
+
+    if is_executable:
+        return "exec"
+
+    return "file"
+
+
+def build_entry(path: Path) -> EntryInfo:
+    stats = path.lstat()
+    is_symlink = stat.S_ISLNK(stats.st_mode)
+    is_dir = stat.S_ISDIR(stats.st_mode)
+    is_executable = stat.S_ISREG(stats.st_mode) and os.access(path, os.X_OK)
+    kind = classify_kind(path, is_dir, is_symlink, is_executable)
+    return EntryInfo(
+        path=path,
+        name=path.name,
+        kind=kind,
+        is_dir=is_dir,
+        is_symlink=is_symlink,
+        size=stats.st_size,
+        mtime=stats.st_mtime,
+        mode=stats.st_mode,
+    )
+
+
+def make_error_entry(path: Path, message: str) -> EntryInfo:
+    return EntryInfo(
+        path=path,
+        name=path.name,
+        kind="error",
+        is_dir=False,
+        is_symlink=False,
+        size=0,
+        mtime=0,
+        mode=0,
+        error=message,
+    )
+
+
+def make_ellipsis_entry(count: int) -> EntryInfo:
+    return EntryInfo(
+        path=Path("."),
+        name="…",
+        kind="file",
+        is_dir=False,
+        is_symlink=False,
+        size=0,
+        mtime=0,
+        mode=0,
+        omitted_count=count,
+    )
+
+
+def normalize_ignore_patterns(raw_patterns: list[str]) -> list[str]:
+    patterns: list[str] = []
+    for raw_pattern in raw_patterns:
+        for pattern in raw_pattern.split(","):
+            cleaned = pattern.strip()
+            if cleaned:
+                patterns.append(cleaned)
+    return patterns
+
+
+def matches_ignore_patterns(
+    entry: EntryInfo, base_path: Path, ignore_patterns: list[str]
+) -> bool:
+    if not ignore_patterns:
+        return False
+
+    try:
+        relative_path = entry.path.relative_to(base_path).as_posix()
+    except ValueError:
+        relative_path = entry.name
+
+    candidates = {
+        entry.name,
+        relative_path,
+        f"./{relative_path}",
+    }
+    if entry.is_dir:
+        candidates.add(f"{relative_path}/")
+        candidates.add(f"./{relative_path}/")
+
+    return any(
+        fnmatch.fnmatch(candidate, pattern)
+        for pattern in ignore_patterns
+        for candidate in candidates
+    )
+
+
+def sort_entries(
+    entries: list[EntryInfo], sort_by: str, reverse: bool
+) -> list[EntryInfo]:
+    if sort_by == "size":
+        key = lambda entry: (entry.size, entry.name.lower())
+        descending = not reverse
+    elif sort_by == "time":
+        key = lambda entry: (entry.mtime, entry.name.lower())
+        descending = not reverse
+    elif sort_by == "type":
+        key = lambda entry: (entry.kind, entry.path.suffix.lower(), entry.name.lower())
+        descending = reverse
+    else:
+        key = lambda entry: entry.name.lower()
+        descending = reverse
+
+    directories = [entry for entry in entries if entry.is_dir]
+    others = [entry for entry in entries if not entry.is_dir]
+    return sorted(directories, key=key, reverse=descending) + sorted(
+        others, key=key, reverse=descending
+    )
+
+
+def collect_children(
+    path: Path,
+    args: argparse.Namespace,
+    base_path: Path,
+    ignore_patterns: list[str],
+    gitignore_matcher: GitIgnoreMatcher,
+) -> tuple[list[EntryInfo], int]:
+    try:
+        children = list(path.iterdir())
+    except PermissionError:
+        return [make_error_entry(path, "[permission denied]")], 0
+
+    entries: list[EntryInfo] = []
+    for child in children:
+        if not args.all and child.name.startswith("."):
+            continue
+
+        try:
+            entry = build_entry(child)
+        except OSError:
+            entries.append(make_error_entry(child, f"{child.name} [unreadable]"))
+            continue
+
+        if args.only == "files" and entry.is_dir:
+            continue
+        if args.only == "dirs" and not entry.is_dir:
+            continue
+        if matches_ignore_patterns(entry, base_path, ignore_patterns):
+            continue
+        if gitignore_matcher.matches(entry.path):
+            continue
+
+        entries.append(entry)
+
+    entries = sort_entries(entries, args.sort, args.reverse)
+
+    omitted_count = 0
+    if args.max_entries is not None and len(entries) > args.max_entries:
+        omitted_count = len(entries) - args.max_entries
+        entries = entries[: args.max_entries]
+        entries.append(make_ellipsis_entry(omitted_count))
+
+    return entries, omitted_count
+
+
+def use_color(mode: str) -> bool:
+    if mode == "always":
+        return True
+    if mode == "off":
+        return False
+    return sys.stdout.isatty() and os.environ.get("TERM") not in (None, "dumb")
+
+
+def colorize(text: str, kind: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    color_code = KIND_COLORS.get(kind)
+    if not color_code:
+        return text
+    return f"\033[{color_code}m{text}{ANSI_RESET}"
+
+
+def dim(text: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    return f"{ANSI_DIM}{text}{ANSI_RESET}"
+
+
+def format_size(size: int) -> str:
+    units = ("B", "KB", "MB", "GB", "TB")
+    value = float(size)
+    for unit in units:
+        if value < 1024 or unit == units[-1]:
+            if unit == "B":
+                return f"{int(value)}{unit}"
+            return f"{value:.1f}{unit}"
+        value /= 1024
+    return f"{size}B"
+
+
+def format_mtime(timestamp: float) -> str:
+    return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
+
+
+def format_permissions(mode: int) -> str:
+    return stat.filemode(mode)
+
+
+def display_name(entry: EntryInfo) -> str:
+    if entry.omitted_count:
+        return f"… {entry.omitted_count} more"
+    if entry.error:
+        return entry.error
+    if entry.is_symlink:
+        try:
+            target = os.readlink(entry.path)
+        except OSError:
+            return entry.name
+        return f"{entry.name} -> {target}"
+    return entry.name
+
+
+def format_metadata(entry: EntryInfo, args: argparse.Namespace, colors_enabled: bool) -> str:
+    if not args.long or entry.omitted_count or entry.error:
+        return ""
+
+    size_label = "dir" if entry.is_dir else format_size(entry.size)
+    metadata = [size_label, format_mtime(entry.mtime)]
+    if args.permissions:
+        metadata.append(format_permissions(entry.mode))
+    return dim("  ".join(metadata), colors_enabled)
+
+
+def format_entry(entry: EntryInfo, args: argparse.Namespace, colors_enabled: bool) -> str:
+    label = display_name(entry)
+
+    if args.icons == "on" and not entry.omitted_count:
+        icon = KIND_ICONS.get(entry.kind, FILE_ICON)
+        gap = "  " if icon in EXTRA_GAP_ICONS else " "
+        label = f"{icon}{gap}{label}"
+
+    label = colorize(label, entry.kind, colors_enabled)
+    metadata = format_metadata(entry, args, colors_enabled)
+    if metadata:
+        label = f"{label}  {metadata}"
+
+    return label
+
+
+def render_children(
+    path: Path,
+    prefix: str,
+    remaining_depth: int,
+    args: argparse.Namespace,
+    base_path: Path,
+    ignore_patterns: list[str],
+    gitignore_matcher: GitIgnoreMatcher,
+    colors_enabled: bool,
+) -> tuple[list[str], RenderStats]:
+    entries, omitted_count = collect_children(
+        path, args, base_path, ignore_patterns, gitignore_matcher
+    )
+    stats = RenderStats(hidden_by_max=omitted_count)
+
+    if not entries:
+        return [], stats
+
+    lines = [] if args.compact else [f"{prefix}│"]
+
+    for index, entry in enumerate(entries):
+        is_last = index == len(entries) - 1
+        connector = "╰─" if is_last else "├─"
+        lines.append(f"{prefix}{connector} {format_entry(entry, args, colors_enabled)}")
+        stats.add_entry(entry)
+
+        if entry.is_dir and remaining_depth > 0:
+            nested_prefix = f"{prefix}{'   ' if is_last else '│  '}"
+            nested_lines, nested_stats = render_children(
+                entry.path,
+                nested_prefix,
+                remaining_depth - 1,
+                args,
+                base_path,
+                ignore_patterns,
+                gitignore_matcher,
+                colors_enabled,
+            )
+            lines.extend(nested_lines)
+            stats.merge(nested_stats)
+
+        if not is_last and not args.compact:
+            lines.append(f"{prefix}│")
+
+    return lines, stats
+
+
+def render_tree(
+    path: Path,
+    depth: int,
+    args: argparse.Namespace,
+    ignore_patterns: list[str],
+    gitignore_matcher: GitIgnoreMatcher,
+    colors_enabled: bool,
+) -> tuple[list[str], RenderStats]:
+    root_entry = build_entry(path)
+    root_name = path.absolute().name if path.name in ("", ".") else path.name
+    root_entry.name = root_name
+    lines = [format_entry(root_entry, args, colors_enabled)]
+    stats = RenderStats(files=0 if root_entry.is_dir else 1)
+
+    if root_entry.is_dir:
+        child_lines, child_stats = render_children(
+            path,
+            "",
+            depth,
+            args,
+            path,
+            ignore_patterns,
+            gitignore_matcher,
+            colors_enabled,
+        )
+        lines.extend(child_lines)
+        stats.merge(child_stats)
+
+    return lines, stats
+
+
+def format_summary(stats: RenderStats, root_is_dir: bool) -> str:
+    parts: list[str] = []
+
+    if stats.dirs:
+        parts.append(f"{stats.dirs} folder{'s' if stats.dirs != 1 else ''}")
+    if stats.files:
+        parts.append(f"{stats.files} file{'s' if stats.files != 1 else ''}")
+
+    if not parts:
+        parts.append("0 entries" if root_is_dir else "0 files")
+
+    summary = "Summary: " + ", ".join(parts)
+    if stats.hidden_by_max:
+        summary += f", {stats.hidden_by_max} more hidden by --max"
+    return summary
+
+
+def main() -> int:
+    args = parse_args()
+    path, depth = resolve_target(args)
+    ignore_patterns = normalize_ignore_patterns(args.ignore)
+
+    if args.permissions:
+        args.long = True
+
+    if not path.exists():
+        print(f"better-ls: path not found: {path}", file=sys.stderr)
+        return 1
+
+    if path.exists():
+        path = path.absolute()
+
+    colors_enabled = use_color(args.color)
+    gitignore_matcher = GitIgnoreMatcher.create(path, args.gitignore)
+
+    try:
+        lines, stats = render_tree(
+            path,
+            depth,
+            args,
+            ignore_patterns,
+            gitignore_matcher,
+            colors_enabled,
+        )
+    except OSError as exc:
+        print(f"better-ls: {exc}", file=sys.stderr)
+        return 1
+
+    sys.stdout.write("\n")
+    sys.stdout.write("\n".join(lines))
+    if args.summary:
+        sys.stdout.write("\n")
+        sys.stdout.write(format_summary(stats, path.is_dir()))
+    sys.stdout.write("\n\n")
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
