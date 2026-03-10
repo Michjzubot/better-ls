@@ -39,7 +39,7 @@ ERROR_ICON = "⛔"
 
 ANSI_RESET = "\033[0m"
 ANSI_DIM = "\033[2m"
-EXTRA_GAP_ICONS = {"⚙️", "🏞️"}
+EXTRA_GAP_ICONS = {"⚙️", "🏞️", "⚖️"}
 
 SPECIAL_FILE_KINDS = {
     "dockerfile": "docker",
