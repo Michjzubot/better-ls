@@ -682,7 +682,7 @@ def format_metadata(entry: EntryInfo, args: argparse.Namespace, colors_enabled: 
         return ""
 
     size_label = "dir" if entry.is_dir else format_size(entry.size)
-    metadata = [format_permissions(entry.mode), size_label, format_mtime(entry.mtime)]
+    metadata = [size_label, format_mtime(entry.mtime)]
     return dim("  ".join(metadata), colors_enabled)
 
 
@@ -695,6 +695,8 @@ def format_entry(entry: EntryInfo, args: argparse.Namespace, colors_enabled: boo
         label = f"{icon}{gap}{label}"
 
     label = colorize(label, entry.kind, colors_enabled)
+    if args.long and not entry.omitted_count and not entry.error:
+        label = f"{label} {format_permissions(entry.mode)}"
     metadata = format_metadata(entry, args, colors_enabled)
     if metadata:
         label = f"{label}  {metadata}"
