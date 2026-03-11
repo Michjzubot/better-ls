@@ -696,7 +696,8 @@ def format_entry(entry: EntryInfo, args: argparse.Namespace, colors_enabled: boo
 
     label = colorize(label, entry.kind, colors_enabled)
     if args.long and not entry.omitted_count and not entry.error:
-        label = f"{label} {format_permissions(entry.mode)}"
+        permissions = dim(format_permissions(entry.mode), colors_enabled)
+        label = f"{permissions} {label}"
     metadata = format_metadata(entry, args, colors_enabled)
     if metadata:
         label = f"{label}  {metadata}"
