@@ -8,6 +8,7 @@ import os
 import stat
 import subprocess
 import sys
+import time
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
@@ -40,6 +41,7 @@ ERROR_ICON = "⛔"
 
 ANSI_RESET = "\033[0m"
 ANSI_DIM = "\033[2m"
+ANSI_CLEAR_SCREEN = "\033[2J\033[H"
 EXTRA_GAP_ICONS = {"⚙️", "🏞️", "⚖️"}
 
 SPECIAL_FILE_KINDS = {
@@ -440,6 +442,11 @@ def parse_args() -> argparse.Namespace:
         action="store_true",
         help="Show a footer with entry counts.",
     )
+    parser.add_argument(
+        "--live",
+        action="store_true",
+        help="Clear and redraw the output every 0.1 seconds until interrupted.",
+    )
     return parser.parse_args()
 
 
@@ -839,6 +846,13 @@ def format_summary(stats: RenderStats, root_is_dir: bool) -> str:
     return summary
 
 
+def build_output(lines: List[str], stats: RenderStats, args: argparse.Namespace, root_is_dir: bool) -> str:
+    parts = ["", "\n".join(lines)]
+    if args.summary:
+        parts.append(format_summary(stats, root_is_dir))
+    return "\n".join(parts) + "\n\n"
+
+
 def main() -> int:
     args = parse_args()
     path, depth = resolve_target(args)
@@ -857,6 +871,33 @@ def main() -> int:
     colors_enabled = use_color(args.color)
     gitignore_matcher = GitIgnoreMatcher.create(path, args.gitignore)
 
+    if args.live:
+        try:
+            while True:
+                lines, stats = render_tree(
+                    path,
+                    depth,
+                    args,
+                    ignore_patterns,
+                    gitignore_matcher,
+                    colors_enabled,
+                )
+                sys.stdout.write(ANSI_CLEAR_SCREEN)
+                sys.stdout.write("\n".join(lines))
+                if args.summary:
+                    sys.stdout.write("\n")
+                    sys.stdout.write(format_summary(stats, path.is_dir()))
+                sys.stdout.write("\n")
+                sys.stdout.flush()
+                time.sleep(0.1)
+        except KeyboardInterrupt:
+            sys.stdout.write("\n")
+            sys.stdout.flush()
+            return 0
+        except OSError as exc:
+            print(f"better-ls: {exc}", file=sys.stderr)
+            return 1
+
     try:
         lines, stats = render_tree(
             path,
@@ -870,12 +911,7 @@ def main() -> int:
         print(f"better-ls: {exc}", file=sys.stderr)
         return 1
 
-    sys.stdout.write("\n")
-    sys.stdout.write("\n".join(lines))
-    if args.summary:
-        sys.stdout.write("\n")
-        sys.stdout.write(format_summary(stats, path.is_dir()))
-    sys.stdout.write("\n\n")
+    sys.stdout.write(build_output(lines, stats, args, path.is_dir()))
     return 0
 
 

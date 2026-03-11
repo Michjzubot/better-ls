@@ -9,6 +9,7 @@ A small tree-style `ls` for the terminal with icons, colors, depth control, sort
 - Sorting by name, size, time, or type
 - Filters for files, directories, glob ignores, and `.gitignore`
 - Compact mode, summaries, colors, and switchable icons
+- Live mode with automatic redraw every 0.1 seconds
 
 ## Requirements
 
@@ -48,6 +49,7 @@ source ~/.bashrc
 ./better-ls
 ./better-ls 2
 ./better-ls /path/to/folder 3 --long
+./better-ls --live
 ./better-ls --sort size --summary
 ./better-ls --ignore '*.log' --gitignore
 ./better-ls --compact --max 20
