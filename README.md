@@ -5,7 +5,7 @@ A small tree-style `ls` for the terminal with icons, colors, depth control, sort
 ## Features
 
 - Tree output with configurable recursion depth
-- Long view with size, modified time, and optional permissions
+- Long view with permissions, size, and modified time
 - Sorting by name, size, time, or type
 - Filters for files, directories, glob ignores, and `.gitignore`
 - Compact mode, summaries, colors, and switchable icons
@@ -19,7 +19,7 @@ A small tree-style `ls` for the terminal with icons, colors, depth control, sort
 ```bash
 ./better-ls
 ./better-ls 2
-./better-ls /path/to/folder 3 --long --permissions
+./better-ls /path/to/folder 3 --long
 ./better-ls --sort size --summary
 ./better-ls --ignore '*.log' --gitignore
 ./better-ls --compact --max 20

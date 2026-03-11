@@ -356,12 +356,12 @@ def parse_args() -> argparse.Namespace:
         "-l",
         "--long",
         action="store_true",
-        help="Show size and modified time for each entry.",
+        help="Show permissions, size, and modified time for each entry.",
     )
     parser.add_argument(
         "--permissions",
         action="store_true",
-        help="Show permissions in long view.",
+        help="Compatibility alias. Permissions are already shown in long view.",
     )
     parser.add_argument(
         "--sort",
@@ -682,9 +682,7 @@ def format_metadata(entry: EntryInfo, args: argparse.Namespace, colors_enabled: 
         return ""
 
     size_label = "dir" if entry.is_dir else format_size(entry.size)
-    metadata = [size_label, format_mtime(entry.mtime)]
-    if args.permissions:
-        metadata.append(format_permissions(entry.mode))
+    metadata = [format_permissions(entry.mode), size_label, format_mtime(entry.mtime)]
     return dim("  ".join(metadata), colors_enabled)
 
 
