@@ -195,6 +195,27 @@ KIND_COLORS = {
     "error": "31;1",
 }
 
+PERMISSION_COLORS = {
+    "r": "34;1",
+    "w": "33;1",
+    "x": "32;1",
+    "s": "35;1",
+    "S": "35",
+    "t": "31;1",
+    "T": "31",
+    "-": "90",
+}
+
+PERMISSION_TYPE_COLORS = {
+    "d": KIND_COLORS["dir"],
+    "l": KIND_COLORS["link"],
+    "p": "33",
+    "s": "35",
+    "b": "33;1",
+    "c": "33;1",
+    "-": "90",
+}
+
 
 @dataclass
 class EntryInfo:
@@ -659,8 +680,26 @@ def format_mtime(timestamp: float) -> str:
     return datetime.fromtimestamp(timestamp).strftime("%Y-%m-%d %H:%M")
 
 
-def format_permissions(mode: int) -> str:
-    return stat.filemode(mode)
+def color_code(text: str, color_code_value: str, enabled: bool) -> str:
+    if not enabled:
+        return text
+    return "\033[{0}m{1}{2}".format(color_code_value, text, ANSI_RESET)
+
+
+def format_permissions(mode: int, colors_enabled: bool) -> str:
+    permission_text = stat.filemode(mode)
+    if not colors_enabled:
+        return permission_text
+
+    colored = []
+    for index, char in enumerate(permission_text):
+        if index == 0:
+            color_value = PERMISSION_TYPE_COLORS.get(char, "90")
+        else:
+            color_value = PERMISSION_COLORS.get(char, "90")
+        colored.append(color_code(char, color_value, True))
+
+    return "".join(colored)
 
 
 def display_name(entry: EntryInfo) -> str:
@@ -696,7 +735,7 @@ def format_entry(entry: EntryInfo, args: argparse.Namespace, colors_enabled: boo
 
     label = colorize(label, entry.kind, colors_enabled)
     if args.long and not entry.omitted_count and not entry.error:
-        permissions = dim(format_permissions(entry.mode), colors_enabled)
+        permissions = format_permissions(entry.mode, colors_enabled)
         label = f"{permissions} {label}"
     metadata = format_metadata(entry, args, colors_enabled)
     if metadata:
