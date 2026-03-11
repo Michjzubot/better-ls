@@ -14,6 +14,34 @@ A small tree-style `ls` for the terminal with icons, colors, depth control, sort
 
 - Python 3.7+
 
+## Install to `/bin`
+
+Install the script system-wide:
+
+```bash
+sudo install -m 755 better-ls /bin/better-ls
+```
+
+Then run it with:
+
+```bash
+/bin/better-ls
+```
+
+## Replace `ls` in `.bashrc`
+
+Add this alias to your `~/.bashrc`:
+
+```bash
+alias ls='/bin/better-ls'
+```
+
+Apply it in the current shell:
+
+```bash
+source ~/.bashrc
+```
+
 ## Usage
 
 ```bash
